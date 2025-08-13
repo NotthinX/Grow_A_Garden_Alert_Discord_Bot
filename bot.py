@@ -64,61 +64,46 @@ async def check_and_notify(prev, current):
         return
 
     categories_to_notify = ["gear", "eggs", "honey", "seeds"]
-    sent_anything = False
 
-    # ตรวจว่ามีอะไรเปลี่ยน
+    # ลบข้อความเก่าทั้งหมด (ถ้าต้องการ)
+    try:
+        await channel.purge(limit=100)
+    except Exception as e:
+        print(f"❌ ลบข้อความล้มเหลว: {e}")
+
+    embed = discord.Embed(
+        title=f"✨ อัปเดตล่าสุด ✨",
+        description="นี่คือข้อมูลล่าสุดทั้งหมด",
+        color=0xFFB966
+    )
+
     for category in categories_to_notify:
-        prev_items = {item["name"]: item["quantity"] for item in prev.get(category, [])}
-        curr_items = {item["name"]: item["quantity"] for item in current.get(category, [])}
+        items = current.get(category, [])
+        if not items:
+            continue
 
         changes = []
-        for name, qty in curr_items.items():
-            if name not in prev_items or prev_items[name] != qty:
-                changes.append(name)
+        for item in items:
+            name = item["name"]
+            qty = item.get("quantity", 0)
+            if name in special_items:
+                changes.append(f"```fix\n{name} — X{qty}```")
+            else:
+                changes.append(f"**{name}** — `X{qty}`")
 
         if changes:
-            sent_anything = True
-            break
+            icon = {
+                "gear": "⚙️",
+                "eggs": "🥚",
+                "honey": "🍯",
+                "seeds": "🌱",
+            }.get(category, "📢")
 
-    if sent_anything:
-        # ลบข้อความเก่าทั้งหมด
-        try:
-            await channel.purge(limit=100)
-        except Exception as e:
-            print(f"❌ ลบข้อความล้มเหลว: {e}")
+            category_name = category.capitalize()
+            field_value = "\n".join(f"  {change}" for change in changes)
+            embed.add_field(name=f"{icon} {category_name}", value=field_value, inline=False)
 
-        embed = discord.Embed(
-            title=f"✨ อัปเดต ✨",
-            description="รายการอัปเดตล่าสุด",
-            color=0xFFB966
-        )
-
-        for category in categories_to_notify:
-            prev_items = {item["name"]: item["quantity"] for item in prev.get(category, [])}
-            curr_items = {item["name"]: item["quantity"] for item in current.get(category, [])}
-
-            changes = []
-            for name, qty in curr_items.items():
-                if name not in prev_items or prev_items[name] != qty:
-                    # ไฮไลต์ไอเทมพิเศษด้วย fix code block (พื้นหลังเทา ตัวอักษรขาว)
-                    if name in special_items:
-                        changes.append(f"```fix\n{name} — X{qty}```")
-                    else:
-                        changes.append(f"**{name}** — `X{qty}`")
-
-            if changes:
-                icon = {
-                    "gear": "⚙️",
-                    "eggs": "🥚",
-                    "honey": "🍯",
-                    "seeds": "🌱",
-                }.get(category, "📢")
-
-                category_name = category.capitalize()
-                field_value = "\n".join(f"  {change}" for change in changes)
-                embed.add_field(name=f"{icon} {category_name}", value=field_value, inline=False)
-
-        await channel.send(embed=embed)
+    await channel.send(embed=embed)
 
 # ------------ WEBSOCKET LISTENER ------------
 async def websocket_listener():
