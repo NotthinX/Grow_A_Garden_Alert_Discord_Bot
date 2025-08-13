@@ -40,12 +40,25 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 @bot.event
 async def on_ready():
     print(f"✅ Logged in as {bot.user}")
-    asyncio.create_task(websocket_listener())  # เริ่มฟัง WebSocket
+    asyncio.create_task(websocket_listener())
+
+# ------------ SPECIAL ITEMS ------------
+with open("special.txt", "r", encoding="utf-8") as f:
+    special_items = {line.strip() for line in f if line.strip()}
 
 # ------------ CHECK & NOTIFY ------------
-import datetime  # เพิ่มด้านบนไฟล์ของคุณ
+pending_update = False  # ตัวแปร batch update
 
-async def check_and_notify(prev, current, now=None):
+async def schedule_update(prev_data, latest_data, delay=1.0):
+    global pending_update
+    if pending_update:
+        return
+    pending_update = True
+    await asyncio.sleep(delay)  # รวบรวมหลายรอบก่อนส่ง
+    await check_and_notify(prev_data, latest_data)
+    pending_update = False
+
+async def check_and_notify(prev, current):
     channel = bot.get_channel(DISCORD_CHANNEL_ID)
     if not channel:
         return
@@ -53,14 +66,7 @@ async def check_and_notify(prev, current, now=None):
     categories_to_notify = ["gear", "eggs", "honey", "seeds"]
     sent_anything = False
 
-    # สร้าง Embed ครั้งเดียว
-    embed = discord.Embed(
-        title=f"✨ อัปเดตรอบ {now} ✨",
-        description="รายการอัปเดตล่าสุด",
-        color=0xFFB966
-    )
-
-    # loop ทุกหมวดเพื่อเพิ่ม field
+    # ตรวจว่ามีอะไรเปลี่ยน
     for category in categories_to_notify:
         prev_items = {item["name"]: item["quantity"] for item in prev.get(category, [])}
         curr_items = {item["name"]: item["quantity"] for item in current.get(category, [])}
@@ -68,26 +74,51 @@ async def check_and_notify(prev, current, now=None):
         changes = []
         for name, qty in curr_items.items():
             if name not in prev_items or prev_items[name] != qty:
-                changes.append(f"**{name}** — `X{qty}`")
+                changes.append(name)
 
         if changes:
-            icon = {
-                "gear": "⚙️",
-                "eggs": "🥚",
-                "honey": "🍯",
-                "seeds": "🌱",
-            }.get(category, "📢")
-
-            category_name = category.capitalize()
-            field_value = "\n".join(f"  {change}" for change in changes)
-            embed.add_field(name=f"{icon} {category_name}", value=field_value, inline=False)
             sent_anything = True
+            break
 
-    # ส่ง Embed แค่ครั้งเดียวหลังจาก loop หมด
     if sent_anything:
+        # ลบข้อความเก่าทั้งหมด
+        try:
+            await channel.purge(limit=100)
+        except Exception as e:
+            print(f"❌ ลบข้อความล้มเหลว: {e}")
+
+        embed = discord.Embed(
+            title=f"✨ อัปเดต ✨",
+            description="รายการอัปเดตล่าสุด",
+            color=0xFFB966
+        )
+
+        for category in categories_to_notify:
+            prev_items = {item["name"]: item["quantity"] for item in prev.get(category, [])}
+            curr_items = {item["name"]: item["quantity"] for item in current.get(category, [])}
+
+            changes = []
+            for name, qty in curr_items.items():
+                if name not in prev_items or prev_items[name] != qty:
+                    # ไฮไลต์ไอเทมพิเศษด้วย fix code block (พื้นหลังเทา ตัวอักษรขาว)
+                    if name in special_items:
+                        changes.append(f"```fix\n{name} — X{qty}```")
+                    else:
+                        changes.append(f"**{name}** — `X{qty}`")
+
+            if changes:
+                icon = {
+                    "gear": "⚙️",
+                    "eggs": "🥚",
+                    "honey": "🍯",
+                    "seeds": "🌱",
+                }.get(category, "📢")
+
+                category_name = category.capitalize()
+                field_value = "\n".join(f"  {change}" for change in changes)
+                embed.add_field(name=f"{icon} {category_name}", value=field_value, inline=False)
+
         await channel.send(embed=embed)
-
-
 
 # ------------ WEBSOCKET LISTENER ------------
 async def websocket_listener():
@@ -104,9 +135,10 @@ async def websocket_listener():
                             if category in latest_data:
                                 latest_data[category] = clean_items(latest_data[category])
                         if "eggs" in latest_data:
-                            latest_data["eggs"] = combine_items_by_name(latest_data["eggs"])   
-                        now = datetime.datetime.now().strftime("%H:%M")      
-                        await check_and_notify(prev_data, latest_data,now=now)
+                            latest_data["eggs"] = combine_items_by_name(latest_data["eggs"])
+
+                        # ใช้ schedule_update รวมหลายรอบ
+                        asyncio.create_task(schedule_update(prev_data, latest_data))
                         prev_data = latest_data.copy()
         except Exception as e:
             print(f"❌ WebSocket error: {e}, retrying in 5s...")
