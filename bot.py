@@ -12,6 +12,7 @@ load_dotenv()
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 DISCORD_CHANNEL_ID = int(os.getenv("DISCORD_CHANNEL_ID"))
 WS_URI = os.getenv("WS_URI")
+USER_ID = int(os.getenv("USER_ID"))
 
 # ------------ DATA STORE ------------
 latest_data = {
@@ -35,6 +36,7 @@ def clean_items(items, keys_to_keep={"name", "quantity"}):
 
 # ------------ DISCORD BOT ------------
 intents = discord.Intents.default()
+intents.message_content = True  # ต้องเปิดถ้าจะส่ง DM
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 @bot.event
@@ -42,9 +44,12 @@ async def on_ready():
     print(f"✅ Logged in as {bot.user}")
     asyncio.create_task(websocket_listener())
 
-# ------------ SPECIAL ITEMS ------------
+# ------------ SPECIAL & ALERT ITEMS ------------
 with open("special.txt", "r", encoding="utf-8") as f:
     special_items = {line.strip() for line in f if line.strip()}
+
+with open("alert.txt", "r", encoding="utf-8") as f:
+    alert_items = {line.strip() for line in f if line.strip()}
 
 # ------------ CHECK & NOTIFY ------------
 pending_update = False  # ตัวแปร batch update
@@ -58,12 +63,23 @@ async def schedule_update(prev_data, latest_data, delay=1.0):
     await check_and_notify(prev_data, latest_data)
     pending_update = False
 
+# ฟังก์ชันส่ง DM ถ้าเจอไอเทมใน alert.txt
+async def send_alert_dm(item_name, qty):
+    if not USER_ID:
+        return
+    try:
+        user = await bot.fetch_user(USER_ID)
+        if user:
+            await user.send(f"⚠️ Alert: `{item_name}` — X{qty} พบในระบบ!")
+    except Exception as e:
+        print(f"❌ ส่ง DM ไม่สำเร็จ: {e}")
+
 async def check_and_notify(prev, current):
     channel = bot.get_channel(DISCORD_CHANNEL_ID)
     if not channel:
         return
 
-    categories_to_notify = ["gear", "eggs", "honey", "seeds"]
+    categories_to_notify = ["gear", "eggs", "seeds"]
 
     # ลบข้อความเก่าทั้งหมด (ถ้าต้องการ)
     try:
@@ -86,16 +102,21 @@ async def check_and_notify(prev, current):
         for item in items:
             name = item["name"]
             qty = item.get("quantity", 0)
+            
+            # ไฮไลต์ไอเทมพิเศษ
             if name in special_items:
                 changes.append(f"```fix\n{name} — X{qty}```")
             else:
                 changes.append(f"**{name}** — `X{qty}`")
 
+            # ตรวจสอบไอเทมแจ้งเตือนและส่ง DM
+            if name in alert_items:
+                asyncio.create_task(send_alert_dm(name, qty))
+
         if changes:
             icon = {
                 "gear": "⚙️",
                 "eggs": "🥚",
-                "honey": "🍯",
                 "seeds": "🌱",
             }.get(category, "📢")
 
@@ -116,7 +137,7 @@ async def websocket_listener():
                     data = json.loads(message)
                     if data.get("type"):
                         latest_data.update(data["data"])
-                        for category in ["gear", "seeds", "cosmetics", "honey"]:
+                        for category in ["gear", "seeds", "cosmetics"]:
                             if category in latest_data:
                                 latest_data[category] = clean_items(latest_data[category])
                         if "eggs" in latest_data:
