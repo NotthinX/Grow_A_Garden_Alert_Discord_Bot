@@ -3,3 +3,4 @@ Grandmaster Sprinkler
 Master Sprinkler
 Paradise Egg
 Bug Egg
+Medium Treat
