@@ -93,6 +93,14 @@ async def check_and_notify(prev, current):
         color=0xFFB966
     )
 
+    if "chrisPCraving" in current:
+        craving_food = current["chrisPCraving"].get("food", "Unknown")
+        embed.add_field(
+            name="🍽️ [Event] Chris P. Craving",
+            value=f"```fix\n{craving_food}```",
+            inline=False
+        )
+
     for category in categories_to_notify:
         items = current.get(category, [])
         if not items:
@@ -121,7 +129,7 @@ async def check_and_notify(prev, current):
             }.get(category, "📢")
 
             category_name = category.capitalize()
-            field_value = "\n".join(f"  {change}" for change in changes)
+            field_value = "\n".join(f"{change}" for change in changes)
             embed.add_field(name=f"{icon} {category_name}", value=field_value, inline=False)
 
     await channel.send(embed=embed)
